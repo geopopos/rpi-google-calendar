@@ -10,7 +10,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.settings import TIMEZONE, MAX_EVENTS_DISPLAY
+from config.settings import TIMEZONE
 from services.google_auth import GoogleCalendarAuth
 
 
@@ -57,7 +57,6 @@ class CalendarService:
                         timeMax=time_max,
                         singleEvents=True,
                         orderBy='startTime',
-                        maxResults=MAX_EVENTS_DISPLAY
                     ).execute()
                     
                     events = events_result.get('items', [])
@@ -75,8 +74,8 @@ class CalendarService:
             # Sort all events by start time
             all_events.sort(key=lambda x: x['start_datetime'])
             
-            # Limit to max display count
-            self.events = all_events[:MAX_EVENTS_DISPLAY]
+            # Keep all events for the day (do not truncate here)
+            self.events = all_events
             self.last_update = datetime.now(self.timezone)
             
             print(f"Fetched {len(self.events)} events for today")
