@@ -240,6 +240,11 @@ class CalendarDisplayWindow(QMainWindow):
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.update_event_statuses)
         self.status_timer.start(60000)  # 1 minute
+        
+        # Time marker position update timer (every 30 seconds)
+        self.marker_timer = QTimer()
+        self.marker_timer.timeout.connect(self.update_time_marker_position)
+        self.marker_timer.start(30000)  # 30 seconds
     
     def setup_connections(self):
         """Setup signal connections"""
@@ -319,6 +324,11 @@ class CalendarDisplayWindow(QMainWindow):
         self.events_updated.emit(self.current_events)
         
         print("Event statuses updated")
+
+    def update_time_marker_position(self):
+        """Update the position of the current time marker"""
+        if hasattr(self, 'event_list_widget') and self.event_list_widget:
+            self.event_list_widget.update_current_time_marker_position()
 
     def scroll_to_closest_event(self):
         """Scroll the events list to center the current or next upcoming event."""
@@ -440,6 +450,8 @@ class CalendarDisplayWindow(QMainWindow):
             self.refresh_timer.stop()
         if hasattr(self, 'status_timer'):
             self.status_timer.stop()
+        if hasattr(self, 'marker_timer'):
+            self.marker_timer.stop()
         
         # Stop notification monitoring
         if hasattr(self, 'notification_manager'):

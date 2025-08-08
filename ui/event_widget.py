@@ -249,12 +249,121 @@ class EventWidget(QWidget):
             self.update_timer = None
 
 
+class CurrentTimeMarker(QWidget):
+    """Widget that shows the current time position in the calendar"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.timezone = pytz.timezone(TIMEZONE)
+        self.setObjectName("current_time_marker")
+        self.setup_ui()
+        
+        # Timer to update current time
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_time)
+        self.update_timer.start(1000)  # Update every second
+        
+        self.update_time()
+        self.apply_styling()
+    
+    def setup_ui(self):
+        """Setup the marker UI"""
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(10)
+        
+        # Left line
+        self.left_line = QLabel("━━━")
+        self.left_line.setObjectName("time_marker_line")
+        layout.addWidget(self.left_line)
+        
+        # NOW indicator
+        self.now_label = QLabel("NOW")
+        self.now_label.setObjectName("time_marker_now")
+        self.now_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.now_label)
+        
+        # Current time
+        self.time_label = QLabel()
+        self.time_label.setObjectName("time_marker_time")
+        self.time_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.time_label)
+        
+        # Right line
+        self.right_line = QLabel("━━━")
+        self.right_line.setObjectName("time_marker_line")
+        layout.addWidget(self.right_line)
+        
+        layout.addStretch()
+    
+    def update_time(self):
+        """Update the current time display"""
+        from config.settings import TIME_FORMAT_12_HOUR
+        now = datetime.now(self.timezone)
+        
+        if TIME_FORMAT_12_HOUR:
+            time_str = now.strftime("%I:%M %p")
+        else:
+            time_str = now.strftime("%H:%M")
+        
+        self.time_label.setText(time_str)
+    
+    def apply_styling(self):
+        """Apply styling to the marker"""
+        style = f"""
+        QWidget#current_time_marker {{
+            background: transparent;
+            border: none;
+            margin: 5px 0px;
+        }}
+        
+        QLabel#time_marker_line {{
+            color: {THEME['primary']};
+            font-family: {FONTS['event_time'][0]};
+            font-size: 14px;
+            font-weight: bold;
+            background: transparent;
+            border: none;
+        }}
+        
+        QLabel#time_marker_now {{
+            color: {THEME['primary']};
+            font-family: {FONTS['event_title'][0]};
+            font-size: 16px;
+            font-weight: bold;
+            background: rgba(0, 255, 255, 0.1);
+            border: 2px solid {THEME['primary']};
+            border-radius: 15px;
+            padding: 3px 8px;
+            min-width: 40px;
+        }}
+        
+        QLabel#time_marker_time {{
+            color: {THEME['text_primary']};
+            font-family: {FONTS['event_time'][0]};
+            font-size: 14px;
+            font-weight: bold;
+            background: transparent;
+            border: none;
+            min-width: 80px;
+        }}
+        """
+        self.setStyleSheet(style)
+    
+    def cleanup(self):
+        """Cleanup timer"""
+        if self.update_timer:
+            self.update_timer.stop()
+            self.update_timer = None
+
+
 class EventListWidget(QWidget):
     """Container widget for multiple event widgets"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.event_widgets = []
+        self.current_time_marker = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -281,6 +390,12 @@ class EventListWidget(QWidget):
             widget.deleteLater()
         
         self.event_widgets.clear()
+        
+        # Clear current time marker
+        if self.current_time_marker:
+            self.current_time_marker.cleanup()
+            self.current_time_marker.deleteLater()
+            self.current_time_marker = None
     
     def update_events(self, events_data):
         """Update the list with new events data"""
@@ -288,6 +403,57 @@ class EventListWidget(QWidget):
         
         for event_data in events_data:
             self.add_event(event_data)
+        
+        # Add current time marker in the correct position
+        self.add_current_time_marker()
+    
+    def add_current_time_marker(self):
+        """Add the current time marker in the appropriate position"""
+        if not self.event_widgets:
+            return
+        
+        now = datetime.now(pytz.timezone(TIMEZONE))
+        marker_position = 0
+        
+        # Find the correct position for the marker
+        for i, widget in enumerate(self.event_widgets):
+            event_start = widget.event_data['start_datetime']
+            
+            # If current time is before this event's start time
+            if now < event_start:
+                marker_position = i
+                break
+            else:
+                marker_position = i + 1
+        
+        # Create and insert the marker
+        self.current_time_marker = CurrentTimeMarker()
+        self.layout.insertWidget(marker_position, self.current_time_marker)
+    
+    def update_current_time_marker_position(self):
+        """Update the position of the current time marker if needed"""
+        if not self.current_time_marker or not self.event_widgets:
+            return
+        
+        now = datetime.now(pytz.timezone(TIMEZONE))
+        current_position = self.layout.indexOf(self.current_time_marker)
+        correct_position = 0
+        
+        # Find where the marker should be
+        for i, widget in enumerate(self.event_widgets):
+            event_start = widget.event_data['start_datetime']
+            widget_position = self.layout.indexOf(widget)
+            
+            if now < event_start:
+                correct_position = widget_position
+                break
+            else:
+                correct_position = widget_position + 1
+        
+        # Move marker if it's in the wrong position
+        if current_position != correct_position:
+            self.layout.removeWidget(self.current_time_marker)
+            self.layout.insertWidget(correct_position, self.current_time_marker)
     
     def get_current_event_widget(self):
         """Get the widget for the currently active event"""
