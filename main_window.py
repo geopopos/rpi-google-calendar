@@ -1,0 +1,406 @@
+"""
+Main Application Window
+Futuristic Google Calendar Display for Raspberry Pi
+"""
+
+import os
+import sys
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QLabel, QScrollArea, QFrame, QApplication)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QFont, QCursor
+from datetime import datetime
+import pytz
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from config.settings import (SCREEN_WIDTH, SCREEN_HEIGHT, FULLSCREEN, HIDE_CURSOR,
+                             REFRESH_INTERVAL, TIMEZONE, THEME, FONTS, APP_NAME)
+from services.calendar_service import CalendarService
+from services.notification_manager import NotificationManager
+from ui.styles import get_combined_stylesheet, load_custom_fonts
+from ui.event_widget import EventListWidget
+from ui.notification_widget import NotificationManager as UINotificationManager
+
+
+class HeaderWidget(QWidget):
+    """Header widget displaying time, date, and status"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.timezone = pytz.timezone(TIMEZONE)
+        self.setObjectName("header")
+        self.setup_ui()
+        
+        # Timer for updating time display
+        self.time_timer = QTimer()
+        self.time_timer.timeout.connect(self.update_time)
+        self.time_timer.start(1000)  # Update every second
+        
+        # Initial time update
+        self.update_time()
+    
+    def setup_ui(self):
+        """Setup header UI layout"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setSpacing(5)
+        layout.setAlignment(Qt.AlignCenter)
+        
+        # Time display
+        self.time_label = QLabel()
+        self.time_label.setObjectName("time_display")
+        self.time_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.time_label)
+        
+        # Date display
+        self.date_label = QLabel()
+        self.date_label.setObjectName("date_display")
+        self.date_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.date_label)
+        
+        # Status display
+        self.status_label = QLabel()
+        self.status_label.setObjectName("status_display")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.hide()  # Hidden by default
+        layout.addWidget(self.status_label)
+    
+    def update_time(self):
+        """Update time and date display"""
+        now = datetime.now(self.timezone)
+        
+        # Format time
+        time_str = now.strftime("%H:%M:%S")
+        self.time_label.setText(time_str)
+        
+        # Format date
+        date_str = now.strftime("%A, %B %d, %Y")
+        self.date_label.setText(date_str)
+    
+    def show_status(self, message, duration=3000):
+        """Show a temporary status message"""
+        self.status_label.setText(message)
+        self.status_label.show()
+        
+        # Hide after duration
+        QTimer.singleShot(duration, self.status_label.hide)
+
+
+class CalendarDisplayWindow(QMainWindow):
+    """Main calendar display window"""
+    
+    # Signals
+    events_updated = pyqtSignal(list)
+    
+    def __init__(self):
+        super().__init__()
+        self.timezone = pytz.timezone(TIMEZONE)
+        
+        # Services
+        self.calendar_service = CalendarService()
+        self.notification_manager = NotificationManager(self.calendar_service)
+        
+        # UI Components
+        self.header_widget = None
+        self.event_list_widget = None
+        self.ui_notification_manager = None
+        self.no_events_label = None
+        
+        # State
+        self.current_events = []
+        self.last_refresh = None
+        
+        # Setup
+        self.setup_window()
+        self.setup_ui()
+        self.setup_timers()
+        self.setup_connections()
+        
+        # Load custom fonts
+        load_custom_fonts()
+        
+        # Apply styling
+        self.setStyleSheet(get_combined_stylesheet())
+        
+        # Initial data load
+        self.refresh_calendar_data()
+        
+        print(f"Calendar Display initialized for {SCREEN_WIDTH}x{SCREEN_HEIGHT}")
+    
+    def setup_window(self):
+        """Setup main window properties"""
+        self.setWindowTitle(APP_NAME)
+        self.setGeometry(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+        
+        # Set window flags for fullscreen kiosk mode
+        if FULLSCREEN:
+            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            self.showFullScreen()
+        
+        # Hide cursor if specified
+        if HIDE_CURSOR:
+            self.setCursor(QCursor(Qt.BlankCursor))
+        
+        # Set background
+        self.setStyleSheet(f"background-color: {THEME['background']};")
+    
+    def setup_ui(self):
+        """Setup the main UI layout"""
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Main layout
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Header
+        self.header_widget = HeaderWidget()
+        main_layout.addWidget(self.header_widget)
+        
+        # Events section
+        self.setup_events_section(main_layout)
+        
+        # Notification overlay
+        self.ui_notification_manager = UINotificationManager(central_widget)
+        
+        # Ensure notification overlay covers the entire window
+        self.ui_notification_manager.resize(self.size())
+    
+    def setup_events_section(self, parent_layout):
+        """Setup the events display section"""
+        # Scroll area for events
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        
+        # Event list widget
+        self.event_list_widget = EventListWidget()
+        scroll_area.setWidget(self.event_list_widget)
+        
+        # No events message
+        self.no_events_label = QLabel("No events scheduled for today")
+        self.no_events_label.setObjectName("no_events")
+        self.no_events_label.setAlignment(Qt.AlignCenter)
+        self.no_events_label.hide()
+        
+        # Add to layout
+        parent_layout.addWidget(scroll_area, 1)  # Stretch factor 1
+        parent_layout.addWidget(self.no_events_label)
+    
+    def setup_timers(self):
+        """Setup application timers"""
+        # Calendar refresh timer
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self.refresh_calendar_data)
+        self.refresh_timer.start(REFRESH_INTERVAL * 1000)  # Convert to milliseconds
+        
+        # Status update timer (every minute)
+        self.status_timer = QTimer()
+        self.status_timer.timeout.connect(self.update_event_statuses)
+        self.status_timer.start(60000)  # 1 minute
+    
+    def setup_connections(self):
+        """Setup signal connections"""
+        # Connect notification manager signals
+        self.notification_manager.show_notification.connect(
+            self.ui_notification_manager.show_notification
+        )
+        self.notification_manager.hide_notification.connect(
+            self.ui_notification_manager.dismiss_current
+        )
+        
+        # Connect events updated signal
+        self.events_updated.connect(self.on_events_updated)
+    
+    def refresh_calendar_data(self):
+        """Refresh calendar data from Google Calendar"""
+        try:
+            self.header_widget.show_status("Refreshing calendar...", 2000)
+            
+            # Fetch events
+            events = self.calendar_service.get_today_events()
+            
+            # Update UI
+            self.current_events = events
+            self.last_refresh = datetime.now(self.timezone)
+            
+            # Emit signal
+            self.events_updated.emit(events)
+            
+            # Update status
+            if events:
+                self.header_widget.show_status(f"Loaded {len(events)} events", 2000)
+            else:
+                self.header_widget.show_status("No events today", 2000)
+                
+            print(f"Calendar refreshed: {len(events)} events loaded")
+            
+        except Exception as error:
+            print(f"Error refreshing calendar: {error}")
+            self.header_widget.show_status("Calendar refresh failed", 3000)
+    
+    def on_events_updated(self, events):
+        """Handle events updated signal"""
+        if events:
+            # Show event list
+            self.event_list_widget.update_events(events)
+            self.event_list_widget.show()
+            self.no_events_label.hide()
+        else:
+            # Show no events message
+            self.event_list_widget.hide()
+            self.no_events_label.show()
+    
+    def update_event_statuses(self):
+        """Update event statuses (called every minute)"""
+        if not self.current_events:
+            return
+        
+        # Update statuses in calendar service
+        for event in self.current_events:
+            now = datetime.now(self.timezone)
+            start_time = event['start_datetime']
+            end_time = event['end_datetime']
+            
+            if now < start_time:
+                event['status'] = 'upcoming'
+            elif start_time <= now <= end_time:
+                event['status'] = 'current'
+            else:
+                event['status'] = 'past'
+        
+        # Update UI
+        self.events_updated.emit(self.current_events)
+        
+        print("Event statuses updated")
+    
+    def get_current_event(self):
+        """Get the currently active event"""
+        return self.calendar_service.get_current_event()
+    
+    def get_next_event(self):
+        """Get the next upcoming event"""
+        return self.calendar_service.get_next_event()
+    
+    def get_events_count(self):
+        """Get the number of events for today"""
+        return len(self.current_events)
+    
+    def force_refresh(self):
+        """Force an immediate calendar refresh"""
+        self.refresh_calendar_data()
+    
+    def toggle_fullscreen(self):
+        """Toggle fullscreen mode"""
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+    
+    def keyPressEvent(self, event):
+        """Handle key press events"""
+        key = event.key()
+        
+        if key == Qt.Key_Escape:
+            # Exit fullscreen or close app
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self.close()
+        
+        elif key == Qt.Key_F11:
+            # Toggle fullscreen
+            self.toggle_fullscreen()
+        
+        elif key == Qt.Key_F5:
+            # Force refresh
+            self.force_refresh()
+        
+        elif key == Qt.Key_Q and event.modifiers() == Qt.ControlModifier:
+            # Quit application
+            self.close()
+        
+        super().keyPressEvent(event)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events"""
+        if event.button() == Qt.LeftButton:
+            # Dismiss any active notifications (only if notification manager exists)
+            if (hasattr(self, 'ui_notification_manager') and 
+                self.ui_notification_manager is not None and
+                hasattr(self.ui_notification_manager, 'notification_widget') and
+                self.ui_notification_manager.notification_widget.is_showing()):
+                self.ui_notification_manager.dismiss_current()
+        
+        super().mousePressEvent(event)
+    
+    def resizeEvent(self, event):
+        """Handle window resize events"""
+        super().resizeEvent(event)
+        
+        # Resize notification overlay (only if it exists and is not None)
+        if hasattr(self, 'ui_notification_manager') and self.ui_notification_manager is not None:
+            self.ui_notification_manager.resize(self.size())
+    
+    def closeEvent(self, event):
+        """Handle window close event"""
+        print("Shutting down calendar display...")
+        
+        # Stop timers
+        if hasattr(self, 'refresh_timer'):
+            self.refresh_timer.stop()
+        if hasattr(self, 'status_timer'):
+            self.status_timer.stop()
+        
+        # Stop notification monitoring
+        if hasattr(self, 'notification_manager'):
+            self.notification_manager.stop_monitoring()
+        
+        # Cleanup event widgets
+        if hasattr(self, 'event_list_widget'):
+            self.event_list_widget.clear_events()
+        
+        event.accept()
+
+
+def main():
+    """Main application entry point"""
+    # Set application properties BEFORE creating QApplication
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    
+    # Create application
+    app = QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setOrganizationName("Calendar Display")
+    
+    try:
+        # Create and show main window
+        window = CalendarDisplayWindow()
+        window.show()
+        
+        print(f"Starting {APP_NAME}...")
+        print(f"Screen resolution: {SCREEN_WIDTH}x{SCREEN_HEIGHT}")
+        print(f"Fullscreen mode: {FULLSCREEN}")
+        print(f"Refresh interval: {REFRESH_INTERVAL} seconds")
+        print("Press F5 to refresh, F11 to toggle fullscreen, Esc to exit")
+        
+        # Run application
+        sys.exit(app.exec_())
+        
+    except KeyboardInterrupt:
+        print("\nApplication interrupted by user")
+        sys.exit(0)
+    except Exception as error:
+        print(f"Application error: {error}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
