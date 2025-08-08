@@ -61,3 +61,7 @@ ANIMATIONS = {
     'event_highlight_duration': 1000,
     'time_update_smooth': True
 }
+
+# Auto-scroll re-enable timeout (seconds)
+# After a user manually scrolls, auto-centering will be disabled for this many seconds.
+AUTO_SCROLL_REENABLE_SECONDS = 5

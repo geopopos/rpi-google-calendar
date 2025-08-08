@@ -6,8 +6,8 @@ Futuristic Google Calendar Display for Raspberry Pi
 import os
 import sys
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QScrollArea, QFrame, QApplication)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+                             QLabel, QScrollArea, QFrame, QApplication, QScroller)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QEvent
 from PyQt5.QtGui import QFont, QCursor
 from datetime import datetime
 import pytz
@@ -16,7 +16,8 @@ import pytz
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from config.settings import (SCREEN_WIDTH, SCREEN_HEIGHT, FULLSCREEN, HIDE_CURSOR,
-                             REFRESH_INTERVAL, TIMEZONE, THEME, FONTS, APP_NAME)
+                             REFRESH_INTERVAL, TIMEZONE, THEME, FONTS, APP_NAME,
+                             AUTO_SCROLL_REENABLE_SECONDS)
 from services.calendar_service import CalendarService
 from services.notification_manager import NotificationManager
 from ui.styles import get_combined_stylesheet, load_custom_fonts
@@ -107,6 +108,13 @@ class CalendarDisplayWindow(QMainWindow):
         self.event_list_widget = None
         self.ui_notification_manager = None
         self.no_events_label = None
+        self.scroll_area = None
+        # Track whether the user has manually scrolled to avoid auto-scrolling
+        self.user_scrolled = False
+        # Timer to re-enable auto-scroll after user interaction
+        self._auto_scroll_timer = QTimer()
+        self._auto_scroll_timer.setSingleShot(True)
+        self._auto_scroll_timer.timeout.connect(lambda: setattr(self, 'user_scrolled', False))
         
         # State
         self.current_events = []
@@ -173,15 +181,39 @@ class CalendarDisplayWindow(QMainWindow):
     def setup_events_section(self, parent_layout):
         """Setup the events display section"""
         # Scroll area for events
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
         
         # Event list widget
         self.event_list_widget = EventListWidget()
-        scroll_area.setWidget(self.event_list_widget)
+        self.scroll_area.setWidget(self.event_list_widget)
+        
+        # Enable touch events on the viewport for touchscreen support
+        viewport = self.scroll_area.viewport()
+        viewport.setAttribute(Qt.WA_AcceptTouchEvents, True)
+        # Install event filter to detect manual user interaction (touch/mouse)
+        viewport.installEventFilter(self)
+        
+        # Enable kinetic (momentum) scrolling via QScroller where available
+        try:
+            # Prefer touch gesture; fall back to left-mouse-button gesture
+            try:
+                QScroller.grabGesture(viewport, QScroller.TouchGesture)
+            except Exception:
+                QScroller.grabGesture(viewport, QScroller.LeftMouseButtonGesture)
+        except Exception:
+            # If QScroller isn't supported in this environment, ignore and fall back to synthesized events
+            pass
+
+        # Track manual user scrolling via the scrollbar as well to avoid fighting their interaction
+        try:
+            vbar = self.scroll_area.verticalScrollBar()
+            vbar.sliderPressed.connect(lambda: setattr(self, 'user_scrolled', True))
+        except Exception:
+            pass
         
         # No events message
         self.no_events_label = QLabel("No events scheduled for today")
@@ -190,7 +222,7 @@ class CalendarDisplayWindow(QMainWindow):
         self.no_events_label.hide()
         
         # Add to layout
-        parent_layout.addWidget(scroll_area, 1)  # Stretch factor 1
+        parent_layout.addWidget(self.scroll_area, 1)  # Stretch factor 1
         parent_layout.addWidget(self.no_events_label)
     
     def setup_timers(self):
@@ -252,6 +284,10 @@ class CalendarDisplayWindow(QMainWindow):
             self.event_list_widget.update_events(events)
             self.event_list_widget.show()
             self.no_events_label.hide()
+            # Auto-scroll to the current/next event unless the user has manually scrolled
+            if not getattr(self, 'user_scrolled', False):
+                # Delay slightly to allow layout to settle
+                QTimer.singleShot(200, self.scroll_to_closest_event)
         else:
             # Show no events message
             self.event_list_widget.hide()
@@ -279,7 +315,50 @@ class CalendarDisplayWindow(QMainWindow):
         self.events_updated.emit(self.current_events)
         
         print("Event statuses updated")
+
+    def scroll_to_closest_event(self):
+        """Scroll the events list to center the current or next upcoming event."""
+        if not hasattr(self, 'scroll_area') or self.scroll_area is None:
+            return
+        target_widget = None
+        # Prefer the current event widget
+        if hasattr(self, 'event_list_widget'):
+            target_widget = self.event_list_widget.get_current_event_widget()
+            if not target_widget:
+                # Find first upcoming event
+                for w in self.event_list_widget.event_widgets:
+                    if w.is_upcoming_event():
+                        target_widget = w
+                        break
+            if not target_widget and self.event_list_widget.event_widgets:
+                target_widget = self.event_list_widget.event_widgets[0]
+        if not target_widget:
+            return
+        # Center the widget in the viewport
+        bar = self.scroll_area.verticalScrollBar()
+        widget_y = target_widget.y()
+        viewport_height = self.scroll_area.viewport().height()
+        center_value = int(widget_y - (viewport_height // 2) + (target_widget.height() // 2))
+        bar.setValue(max(0, center_value))
     
+    def eventFilter(self, obj, event):
+        """Handle touch/mouse events on the scroll viewport to detect manual user interaction."""
+        try:
+            if obj is self.scroll_area.viewport():
+                if event.type() in (QEvent.TouchBegin, QEvent.TouchUpdate, QEvent.TouchEnd,
+                                    QEvent.MouseButtonPress, QEvent.MouseMove, QEvent.MouseButtonRelease):
+                    # Mark that user interacted; cancel auto-centering for a while
+                    self.user_scrolled = True
+                    # Restart the auto-scroll re-enable timer so it counts from the last interaction
+                    try:
+                        self._auto_scroll_timer.start(int(AUTO_SCROLL_REENABLE_SECONDS * 1000))
+                    except Exception:
+                        # Fallback to singleShot if timer not available
+                        QTimer.singleShot(int(AUTO_SCROLL_REENABLE_SECONDS * 1000), lambda: setattr(self, 'user_scrolled', False))
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
     def get_current_event(self):
         """Get the currently active event"""
         return self.calendar_service.get_current_event()
@@ -374,6 +453,9 @@ def main():
     # Set application properties BEFORE creating QApplication
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    # Enable touch/mouse synthesis so touchscreens without full Qt touch drivers still work
+    QApplication.setAttribute(Qt.AA_SynthesizeMouseForUnhandledTouchEvents, True)
+    QApplication.setAttribute(Qt.AA_SynthesizeTouchForUnhandledMouseEvents, True)
     
     # Create application
     app = QApplication(sys.argv)
