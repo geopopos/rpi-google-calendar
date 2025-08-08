@@ -79,8 +79,9 @@ class HeaderWidget(QWidget):
             time_str = now.strftime("%H:%M:%S")
         self.time_label.setText(time_str)
         
-        # Format date
-        date_str = now.strftime("%A, %B %d, %Y")
+        # Format date with separators and remove leading zero
+        day = now.day
+        date_str = now.strftime(f"%A • %B {day} • %Y")
         self.date_label.setText(date_str)
     
     def show_status(self, message, duration=3000):
