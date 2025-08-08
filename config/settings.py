@@ -17,6 +17,9 @@ REFRESH_INTERVAL = 900  # 15 minutes in seconds
 MAX_EVENTS_DISPLAY = 5
 TIMEZONE = "America/New_York"  # Change to your timezone
 
+# Time Display Settings
+TIME_FORMAT_12_HOUR = True  # Set to False for 24-hour format
+
 # Notification Settings
 WARNING_MINUTES = 10  # Minutes before event to show warning
 NOTIFICATION_TIMEOUT = 30  # Seconds to auto-dismiss notifications

@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from config.settings import (SCREEN_WIDTH, SCREEN_HEIGHT, FULLSCREEN, HIDE_CURSOR,
                              REFRESH_INTERVAL, TIMEZONE, THEME, FONTS, APP_NAME,
-                             AUTO_SCROLL_REENABLE_SECONDS)
+                             AUTO_SCROLL_REENABLE_SECONDS, TIME_FORMAT_12_HOUR)
 from services.calendar_service import CalendarService
 from services.notification_manager import NotificationManager
 from ui.styles import get_combined_stylesheet, load_custom_fonts
@@ -72,8 +72,11 @@ class HeaderWidget(QWidget):
         """Update time and date display"""
         now = datetime.now(self.timezone)
         
-        # Format time
-        time_str = now.strftime("%H:%M:%S")
+        # Format time based on configuration
+        if TIME_FORMAT_12_HOUR:
+            time_str = now.strftime("%I:%M:%S %p")
+        else:
+            time_str = now.strftime("%H:%M:%S")
         self.time_label.setText(time_str)
         
         # Format date
