@@ -307,11 +307,16 @@ class CalendarDisplayWindow(QMainWindow):
         if not self.current_events:
             return
         
+        # Track if any event transitions from current to past
+        marker_needs_update = False
+        
         # Update statuses in calendar service
         for event in self.current_events:
             now = datetime.now(self.timezone)
             start_time = event['start_datetime']
             end_time = event['end_datetime']
+            
+            old_status = event.get('status', 'upcoming')
             
             if now < start_time:
                 event['status'] = 'upcoming'
@@ -319,9 +324,17 @@ class CalendarDisplayWindow(QMainWindow):
                 event['status'] = 'current'
             else:
                 event['status'] = 'past'
+            
+            # Check if an event just ended (transitioned from current to past)
+            if old_status == 'current' and event['status'] == 'past':
+                marker_needs_update = True
         
         # Update UI
         self.events_updated.emit(self.current_events)
+        
+        # Force marker position update if an event just ended
+        if marker_needs_update:
+            self.update_time_marker_position()
         
         print("Event statuses updated")
 

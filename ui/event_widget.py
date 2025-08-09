@@ -439,16 +439,28 @@ class EventListWidget(QWidget):
         current_position = self.layout.indexOf(self.current_time_marker)
         correct_position = 0
         
-        # Find where the marker should be
-        for i, widget in enumerate(self.event_widgets):
-            event_start = widget.event_data['start_datetime']
-            widget_position = self.layout.indexOf(widget)
-            
-            if now < event_start:
-                correct_position = widget_position
+        # First, check if there's a currently active event
+        current_event_widget = None
+        for widget in self.event_widgets:
+            if widget.is_current_event():
+                current_event_widget = widget
                 break
-            else:
-                correct_position = widget_position + 1
+        
+        if current_event_widget:
+            # If there's a current event, position marker at that event
+            widget_position = self.layout.indexOf(current_event_widget)
+            correct_position = widget_position
+        else:
+            # No current event, use time-based positioning (original logic)
+            for i, widget in enumerate(self.event_widgets):
+                event_start = widget.event_data['start_datetime']
+                widget_position = self.layout.indexOf(widget)
+                
+                if now < event_start:
+                    correct_position = widget_position
+                    break
+                else:
+                    correct_position = widget_position + 1
         
         # Move marker if it's in the wrong position
         if current_position != correct_position:
