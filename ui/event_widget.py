@@ -507,7 +507,6 @@ class EventListWidget(QWidget):
         
         now = datetime.now(pytz.timezone(TIMEZONE))
         current_position = self.layout.indexOf(self.current_time_marker)
-        correct_position = 0
         
         # First, check if there's a currently active event
         current_event_widget = None
@@ -518,19 +517,23 @@ class EventListWidget(QWidget):
         
         if current_event_widget:
             # If there's a current event, position marker at that event
-            widget_position = self.layout.indexOf(current_event_widget)
-            correct_position = widget_position
+            correct_position = self.layout.indexOf(current_event_widget)
         else:
-            # No current event, use time-based positioning (original logic)
+            # No current event, use time-based positioning
+            # Start from position 0 (before all events)
+            correct_position = 0
+            
+            # Find where the marker should go based on current time
             for i, widget in enumerate(self.event_widgets):
                 event_start = widget.event_data['start_datetime']
-                widget_position = self.layout.indexOf(widget)
                 
                 if now < event_start:
-                    correct_position = widget_position
+                    # Current time is before this event, marker goes before it
+                    correct_position = self.layout.indexOf(widget)
                     break
                 else:
-                    correct_position = widget_position + 1
+                    # Current time is after this event, marker goes after it
+                    correct_position = self.layout.indexOf(widget) + 1
         
         # Move marker if it's in the wrong position
         if current_position != correct_position:
