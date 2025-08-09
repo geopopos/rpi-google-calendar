@@ -130,6 +130,9 @@ class EventWidget(QWidget):
         icon = status_icons.get(status, '○')
         self.status_indicator.setText(icon)
         
+        # Apply calendar color styling to the status indicator
+        self.apply_status_indicator_styling(status)
+        
         # Update event data status
         self.event_data['status'] = status
     
@@ -155,6 +158,73 @@ class EventWidget(QWidget):
             self.event_data['status'] = new_status
             self.update_status_indicator()
             self.apply_styling()  # Re-apply styling for new status
+    
+    def apply_status_indicator_styling(self, status):
+        """Apply calendar color styling to the status indicator"""
+        # Get calendar color, default to a neutral color if not available
+        calendar_color = self.event_data.get('calendar_color', '#666666')
+        
+        # Ensure the color starts with # for CSS
+        if not calendar_color.startswith('#'):
+            calendar_color = '#666666'
+        
+        # Convert hex color to RGB for transparency effects
+        try:
+            # Remove # and convert to RGB
+            hex_color = calendar_color.lstrip('#')
+            if len(hex_color) == 6:
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                rgb_color = f"rgb({r}, {g}, {b})"
+                rgba_bg = f"rgba({r}, {g}, {b}, 0.8)"
+                rgba_border = f"rgba({r}, {g}, {b}, 1.0)"
+            else:
+                # Fallback for invalid hex colors
+                rgb_color = "rgb(102, 102, 102)"
+                rgba_bg = "rgba(102, 102, 102, 0.8)"
+                rgba_border = "rgba(102, 102, 102, 1.0)"
+        except ValueError:
+            # Fallback for any parsing errors
+            rgb_color = "rgb(102, 102, 102)"
+            rgba_bg = "rgba(102, 102, 102, 0.8)"
+            rgba_border = "rgba(102, 102, 102, 1.0)"
+        
+        # Determine text color for good contrast
+        # Use white text for dark backgrounds, dark text for light backgrounds
+        try:
+            hex_color = calendar_color.lstrip('#')
+            if len(hex_color) == 6:
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                # Calculate luminance
+                luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+                text_color = "white" if luminance < 0.5 else "black"
+            else:
+                text_color = "white"
+        except:
+            text_color = "white"
+        
+        # Create styling for the status indicator with calendar color
+        indicator_style = f"""
+        QLabel#status_indicator {{
+            color: {text_color};
+            font-size: 14px;
+            font-weight: bold;
+            background: {rgba_bg};
+            border: 2px solid {rgba_border};
+            border-radius: 10px;
+            min-width: 20px;
+            max-width: 20px;
+            min-height: 20px;
+            max-height: 20px;
+            padding: 0px;
+        }}
+        """
+        
+        # Apply the styling
+        self.status_indicator.setStyleSheet(indicator_style)
     
     def apply_styling(self):
         """Apply styling based on current event status"""
@@ -509,6 +579,7 @@ if __name__ == "__main__":
             'end_datetime': now - timedelta(minutes=30),
             'formatted_time': '9:00 AM - 10:00 AM',
             'calendar_name': 'Work',
+            'calendar_color': '#4285f4',  # Google Blue
             'status': 'past'
         },
         {
@@ -519,6 +590,7 @@ if __name__ == "__main__":
             'end_datetime': now + timedelta(minutes=45),
             'formatted_time': '12:00 PM - 1:00 PM',
             'calendar_name': 'Personal',
+            'calendar_color': '#0f9d58',  # Google Green
             'status': 'current'
         },
         {
@@ -529,6 +601,7 @@ if __name__ == "__main__":
             'end_datetime': now + timedelta(hours=3),
             'formatted_time': '3:00 PM - 4:00 PM',
             'calendar_name': 'Work',
+            'calendar_color': '#ea4335',  # Google Red
             'status': 'upcoming'
         }
     ]
