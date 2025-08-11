@@ -480,21 +480,39 @@ class EventListWidget(QWidget):
     def add_current_time_marker(self):
         """Add the current time marker in the appropriate position"""
         if not self.event_widgets:
+            # No events, place marker at the top
+            self.current_time_marker = CurrentTimeMarker()
+            self.layout.insertWidget(0, self.current_time_marker)
             return
         
         now = datetime.now(pytz.timezone(TIMEZONE))
-        marker_position = 0
         
-        # Find the correct position for the marker
-        for i, widget in enumerate(self.event_widgets):
-            event_start = widget.event_data['start_datetime']
+        # Check if there's a currently active event
+        current_event_widget = self.get_current_event_widget()
+        
+        if current_event_widget:
+            # Position marker after the current event
+            current_event_index = self.event_widgets.index(current_event_widget)
+            marker_position = current_event_index + 1
+        else:
+            # No current event, use time-based positioning
+            marker_position = 0
             
-            # If current time is before this event's start time
-            if now < event_start:
-                marker_position = i
-                break
-            else:
-                marker_position = i + 1
+            # Find where the marker should go based on current time
+            for i, widget in enumerate(self.event_widgets):
+                event_start = widget.event_data['start_datetime']
+                
+                if now < event_start:
+                    # Current time is before this event, marker goes before it
+                    marker_position = i
+                    break
+                else:
+                    # Current time is after this event's start, marker goes after it
+                    marker_position = i + 1
+        
+        # Ensure position is within valid bounds
+        max_position = len(self.event_widgets)
+        marker_position = min(marker_position, max_position)
         
         # Create and insert the marker
         self.current_time_marker = CurrentTimeMarker()
@@ -508,32 +526,38 @@ class EventListWidget(QWidget):
         now = datetime.now(pytz.timezone(TIMEZONE))
         current_position = self.layout.indexOf(self.current_time_marker)
         
-        # First, check if there's a currently active event
-        current_event_widget = None
-        for widget in self.event_widgets:
-            if widget.is_current_event():
-                current_event_widget = widget
-                break
+        # Check if there's a currently active event
+        current_event_widget = self.get_current_event_widget()
         
         if current_event_widget:
-            # If there's a current event, position marker at that event
-            correct_position = self.layout.indexOf(current_event_widget)
+            # Position marker AFTER the current event (not at it)
+            current_event_index = self.event_widgets.index(current_event_widget)
+            correct_position = current_event_index + 1
         else:
             # No current event, use time-based positioning
-            # Start from position 0 (before all events)
             correct_position = 0
             
             # Find where the marker should go based on current time
             for i, widget in enumerate(self.event_widgets):
                 event_start = widget.event_data['start_datetime']
+                event_end = widget.event_data['end_datetime']
                 
                 if now < event_start:
                     # Current time is before this event, marker goes before it
-                    correct_position = self.layout.indexOf(widget)
+                    correct_position = i
                     break
+                elif now > event_end:
+                    # Current time is after this event has ended, marker goes after it
+                    correct_position = i + 1
                 else:
-                    # Current time is after this event, marker goes after it
-                    correct_position = self.layout.indexOf(widget) + 1
+                    # This shouldn't happen if we properly detect current events
+                    # But as a fallback, position after this event
+                    correct_position = i + 1
+                    break
+        
+        # Ensure position is within valid bounds
+        max_position = len(self.event_widgets)
+        correct_position = min(correct_position, max_position)
         
         # Move marker if it's in the wrong position
         if current_position != correct_position:
