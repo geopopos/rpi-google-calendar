@@ -343,24 +343,18 @@ class CurrentTimeMarker(QWidget):
         layout.setSpacing(10)
         
         # Left line
-        self.left_line = QLabel("━━━")
+        self.left_line = QLabel("━━━━━━━")
         self.left_line.setObjectName("time_marker_line")
         layout.addWidget(self.left_line)
         
-        # NOW indicator
-        self.now_label = QLabel("NOW")
-        self.now_label.setObjectName("time_marker_now")
-        self.now_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.now_label)
-        
-        # Current time
+        # Current time (centered)
         self.time_label = QLabel()
         self.time_label.setObjectName("time_marker_time")
         self.time_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.time_label)
         
         # Right line
-        self.right_line = QLabel("━━━")
+        self.right_line = QLabel("━━━━━━━")
         self.right_line.setObjectName("time_marker_line")
         layout.addWidget(self.right_line)
         
@@ -396,25 +390,15 @@ class CurrentTimeMarker(QWidget):
             border: none;
         }}
         
-        QLabel#time_marker_now {{
+        QLabel#time_marker_time {{
             color: {THEME['primary']};
-            font-family: {FONTS['event_title'][0]};
+            font-family: {FONTS['event_time'][0]};
             font-size: 16px;
             font-weight: bold;
             background: rgba(0, 255, 255, 0.1);
             border: 2px solid {THEME['primary']};
-            border-radius: 15px;
-            padding: 3px 8px;
-            min-width: 40px;
-        }}
-        
-        QLabel#time_marker_time {{
-            color: {THEME['text_primary']};
-            font-family: {FONTS['event_time'][0]};
-            font-size: 14px;
-            font-weight: bold;
-            background: transparent;
-            border: none;
+            border-radius: 8px;
+            padding: 4px 12px;
             min-width: 80px;
         }}
         """
