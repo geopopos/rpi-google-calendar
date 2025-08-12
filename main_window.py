@@ -6,7 +6,7 @@ Futuristic Google Calendar Display for Raspberry Pi
 import os
 import sys
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QScrollArea, QFrame, QApplication, QScroller)
+                             QLabel, QScrollArea, QFrame, QApplication, QScroller, QDialog)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QEvent
 from PyQt5.QtGui import QFont, QCursor
 from datetime import datetime
@@ -409,6 +409,69 @@ class CalendarDisplayWindow(QMainWindow):
         else:
             self.showFullScreen()
     
+    def open_pomodoro_setup(self):
+        """Open the Pomodoro setup dialog and launch the timer overlay."""
+        # Local imports to avoid loading when unused
+        try:
+            from services.pomodoro_service import PomodoroService
+            from ui.pomodoro_setup_dialog import PomodoroSetupDialog
+            from ui.pomodoro_widget import PomodoroWidget
+        except Exception as e:
+            try:
+                self.header_widget.show_status(f"Pomodoro load error: {e}", 3000)
+            except Exception:
+                pass
+            return
+
+        dialog = PomodoroSetupDialog(self)
+        # Provide a centered modal dialog sized relative to screen
+        try:
+            dialog.setFixedWidth(int(self.width() * 0.6))
+            dialog.setFixedHeight(int(self.height() * 0.5))
+        except Exception:
+            pass
+
+        if dialog.exec_() == QDialog.Accepted:
+            focus_min, break_min, rounds = dialog.get_values()
+            # Keep references on self to ensure Python wrappers aren't GC'd
+            self._pomodoro_service = PomodoroService(self)
+            self._pomodoro_service.start(focus_min, break_min, rounds)
+            self._pomodoro_widget = PomodoroWidget(self._pomodoro_service, self)
+            try:
+                # Close/cleanup when dialog finishes
+                self._pomodoro_widget.finished.connect(self._on_pomodoro_closed)
+            except Exception:
+                pass
+            try:
+                # Show non-blocking fullscreen overlay so it reliably appears on top
+                self._pomodoro_widget.showFullScreen()
+            except Exception:
+                self._pomodoro_widget.show()
+            try:
+                self.header_widget.show_status("Pomodoro started", 1500)
+            except Exception:
+                pass
+        else:
+            # User cancelled; optional feedback
+            try:
+                self.header_widget.show_status("Pomodoro canceled", 1500)
+            except Exception:
+                pass
+
+    def _on_pomodoro_closed(self, result):
+        """Cleanup after Pomodoro dialog closes"""
+        try:
+            if hasattr(self, "_pomodoro_widget") and self._pomodoro_widget:
+                self._pomodoro_widget.deleteLater()
+        except Exception:
+            pass
+        try:
+            self._pomodoro_widget = None
+            self._pomodoro_service = None
+            self.header_widget.show_status("Pomodoro closed", 1500)
+        except Exception:
+            pass
+
     def keyPressEvent(self, event):
         """Handle key press events"""
         key = event.key()
@@ -419,18 +482,33 @@ class CalendarDisplayWindow(QMainWindow):
                 self.showNormal()
             else:
                 self.close()
+            return
         
         elif key == Qt.Key_F11:
             # Toggle fullscreen
             self.toggle_fullscreen()
+            return
         
         elif key == Qt.Key_F5:
             # Force refresh
             self.force_refresh()
+            return
         
         elif key == Qt.Key_Q and event.modifiers() == Qt.ControlModifier:
             # Quit application
             self.close()
+            return
+
+        elif key == Qt.Key_T and event.modifiers() == Qt.NoModifier:
+            # Open Pomodoro setup dialog (keyboard-only flow)
+            try:
+                self.open_pomodoro_setup()
+            except Exception as e:
+                try:
+                    self.header_widget.show_status(f"Pomodoro error: {e}", 3000)
+                except Exception:
+                    pass
+            return
         
         super().keyPressEvent(event)
     
